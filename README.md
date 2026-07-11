@@ -75,7 +75,7 @@ cd android
 
 ## CI and releases
 
-GitHub Actions runs the Swift host tests and production app build on an Apple Silicon `macos-14` runner, and runs the Android protocol tests and APK build on Ubuntu for every push to `main` and every pull request.
+GitHub Actions runs the Swift host tests and production app build on an Apple Silicon `macos-15` runner, and runs the Android protocol tests and APK build on Ubuntu for every push to `main` and every pull request.
 
 Pushing a version tag creates a GitHub Release with the macOS app ZIP, Android APK, and SHA-256 checksums:
 
