@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+dist/
+tmp/
+.gradle/
+android/.gradle/
+android/local.properties
+android/app/build/
+.idea/
+*.xcuserstate
+.DS_Store
