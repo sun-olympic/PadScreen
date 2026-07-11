@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS host
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Run Swift tests
+        run: swift test
+
+      - name: Verify macOS icon packaging
+        run: ./scripts/test-macos-app-icon.sh
+
+      - name: Build macOS app
+        run: ./scripts/build-macos-app.sh
+
+      - name: Verify Apple Silicon app
+        run: |
+          codesign --verify --deep --strict dist/PadScreen.app
+          file dist/PadScreen.app/Contents/MacOS/PadScreenHost | grep -q arm64
+
+  android:
+    name: Android client
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Verify GitHub Actions definitions
+        run: ./scripts/test-github-workflows.sh
+
+      - name: Verify Android icon packaging
+        run: ./scripts/test-android-app-icon.sh
+
+      - name: Test and build Android client
+        working-directory: android
+        run: ./gradlew runProtocolTests assembleDebug

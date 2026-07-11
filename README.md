@@ -73,6 +73,19 @@ cd android
 ./gradlew --offline runProtocolTests
 ```
 
+## CI and releases
+
+GitHub Actions runs the Swift host tests and production app build on an Apple Silicon `macos-15` runner, and runs the Android protocol tests and APK build on Ubuntu for every push to `main` and every pull request.
+
+Pushing a version tag creates a GitHub Release with the macOS app ZIP, Android APK, and SHA-256 checksums:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The automated macOS package is ad-hoc signed but not Developer ID notarized. The Android package is debug signed for direct device testing and is not a Play Store release build.
+
 ## Known limitations
 
 - The LAN prototype has no pairing or encryption. Do not expose port `48596` to the internet or an untrusted network.

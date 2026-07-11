@@ -1,7 +1,7 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${0:A:h:h}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="$ROOT/android/app/src/main/AndroidManifest.xml"
 
 grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST" || {
