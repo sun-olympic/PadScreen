@@ -30,7 +30,7 @@ public struct SessionNegotiator: Sendable {
             sessionID: UUID(),
             width: 1920,
             height: 1200,
-            framesPerSecond: 120,
+            framesPerSecond: 90,
             codec: "h264"
         )
     }

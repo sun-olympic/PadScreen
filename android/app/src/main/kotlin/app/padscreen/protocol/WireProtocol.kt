@@ -49,31 +49,79 @@ object FrameCodec {
 }
 
 class FrameDecoder(private val maxPayloadSize: Int = 16 * 1024 * 1024) {
-    private var buffer = byteArrayOf()
+    private var buffer = ByteArray(64 * 1024)
+    private var readOffset = 0
+    private var writeOffset = 0
 
-    fun append(bytes: ByteArray): List<WireFrame> {
-        buffer += bytes
+    fun append(bytes: ByteArray): List<WireFrame> = append(bytes, bytes.size)
+
+    fun append(bytes: ByteArray, length: Int): List<WireFrame> {
+        require(length in 0..bytes.size)
+        ensureWritable(length)
+        bytes.copyInto(buffer, writeOffset, 0, length)
+        writeOffset += length
         val frames = mutableListOf<WireFrame>()
 
-        while (buffer.size >= FrameCodec.HEADER_SIZE) {
-            if (!buffer.copyOfRange(0, 4).contentEquals(byteArrayOf(0x50, 0x44, 0x53, 0x31))) {
+        while (writeOffset - readOffset >= FrameCodec.HEADER_SIZE) {
+            if (buffer[readOffset] != 0x50.toByte() ||
+                buffer[readOffset + 1] != 0x44.toByte() ||
+                buffer[readOffset + 2] != 0x53.toByte() ||
+                buffer[readOffset + 3] != 0x31.toByte()
+            ) {
                 throw ProtocolException.InvalidMagic()
             }
-            val version = buffer[4].toInt() and 0xff
+            val version = buffer[readOffset + 4].toInt() and 0xff
             if (version != FrameCodec.VERSION) throw ProtocolException.UnsupportedVersion(version)
-            val rawType = buffer[5].toInt() and 0xff
+            val rawType = buffer[readOffset + 5].toInt() and 0xff
             val type = MessageType.fromCode(rawType) ?: throw ProtocolException.UnknownMessageType(rawType)
-            val payloadSize = ByteBuffer.wrap(buffer, 8, 4).order(ByteOrder.BIG_ENDIAN).int
+            val payloadSize = ((buffer[readOffset + 8].toInt() and 0xff) shl 24) or
+                ((buffer[readOffset + 9].toInt() and 0xff) shl 16) or
+                ((buffer[readOffset + 10].toInt() and 0xff) shl 8) or
+                (buffer[readOffset + 11].toInt() and 0xff)
             if (payloadSize < 0 || payloadSize > maxPayloadSize) {
                 throw ProtocolException.PayloadTooLarge(payloadSize)
             }
             val frameSize = FrameCodec.HEADER_SIZE + payloadSize
-            if (buffer.size < frameSize) break
+            if (writeOffset - readOffset < frameSize) break
 
-            frames += WireFrame(type, buffer.copyOfRange(FrameCodec.HEADER_SIZE, frameSize))
-            buffer = buffer.copyOfRange(frameSize, buffer.size)
+            val payloadStart = readOffset + FrameCodec.HEADER_SIZE
+            frames += WireFrame(type, buffer.copyOfRange(payloadStart, payloadStart + payloadSize))
+            readOffset += frameSize
         }
 
+        compactIfUseful()
         return frames
+    }
+
+    private fun ensureWritable(additionalBytes: Int) {
+        if (buffer.size - writeOffset >= additionalBytes) return
+        val unreadBytes = writeOffset - readOffset
+        if (buffer.size - unreadBytes >= additionalBytes) {
+            buffer.copyInto(buffer, 0, readOffset, writeOffset)
+            readOffset = 0
+            writeOffset = unreadBytes
+            return
+        }
+
+        var capacity = buffer.size
+        val required = unreadBytes + additionalBytes
+        while (capacity < required) capacity = (capacity * 2).coerceAtLeast(required)
+        val replacement = ByteArray(capacity)
+        buffer.copyInto(replacement, 0, readOffset, writeOffset)
+        buffer = replacement
+        readOffset = 0
+        writeOffset = unreadBytes
+    }
+
+    private fun compactIfUseful() {
+        if (readOffset == writeOffset) {
+            readOffset = 0
+            writeOffset = 0
+        } else if (readOffset >= buffer.size / 2) {
+            val unreadBytes = writeOffset - readOffset
+            buffer.copyInto(buffer, 0, readOffset, writeOffset)
+            readOffset = 0
+            writeOffset = unreadBytes
+        }
     }
 }

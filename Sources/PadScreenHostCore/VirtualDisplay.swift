@@ -56,7 +56,7 @@ public final class CoreGraphicsVirtualDisplay: VirtualDisplayProviding, @uncheck
         PadScreenVirtualDisplayDestroy(reference)
     }
 
-    public func makePrimaryKeepingPhysicalDisplays() throws {
+    public func makePrimaryMirroringPhysicalDisplays() throws {
         var count: UInt32 = 0
         guard CGGetOnlineDisplayList(0, nil, &count) == .success else {
             throw VirtualDisplayError.settingsRejected
@@ -69,18 +69,15 @@ public final class CoreGraphicsVirtualDisplay: VirtualDisplayProviding, @uncheck
         guard CGBeginDisplayConfiguration(&configuration) == .success, let configuration else {
             throw VirtualDisplayError.settingsRejected
         }
-        var nextX = Int32(CGDisplayBounds(displayID).width)
         guard CGConfigureDisplayOrigin(configuration, displayID, 0, 0) == .success else {
             CGCancelDisplayConfiguration(configuration)
             throw VirtualDisplayError.settingsRejected
         }
         for display in displays where display != displayID {
-            let bounds = CGDisplayBounds(display)
-            guard CGConfigureDisplayOrigin(configuration, display, nextX, 0) == .success else {
+            guard CGConfigureDisplayMirrorOfDisplay(configuration, display, displayID) == .success else {
                 CGCancelDisplayConfiguration(configuration)
                 throw VirtualDisplayError.settingsRejected
             }
-            nextX += Int32(bounds.width)
         }
         guard CGCompleteDisplayConfiguration(configuration, .forSession) == .success else {
             throw VirtualDisplayError.settingsRejected

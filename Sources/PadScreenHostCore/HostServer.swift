@@ -40,7 +40,9 @@ public final class PadScreenServer: @unchecked Sendable {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else { throw HostServerError.invalidPort }
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
-        let listener = try NWListener(using: NWParameters(tls: nil, tcp: tcp), on: endpointPort)
+        let parameters = NWParameters(tls: nil, tcp: tcp)
+        parameters.serviceClass = .responsiveData
+        let listener = try NWListener(using: parameters, on: endpointPort)
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return }
             self.queue.async {
@@ -95,7 +97,7 @@ private final class HostClientConnection: @unchecked Sendable {
     private var decoder = FrameDecoder()
     private var processor = HostSessionProcessor()
     private var heartbeat: DispatchSourceTimer?
-    private let pendingVideo = OrderedFrameQueue<EncodedVideoPacket>()
+    private let pendingVideo = ReferenceSafeVideoQueue()
     private var videoSendInFlight = false
     private let initialCodecConfiguration: Data?
 

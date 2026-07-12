@@ -21,7 +21,7 @@ import PadScreenProtocol
 
     #expect(session.width == 1920)
     #expect(session.height == 1200)
-    #expect(session.framesPerSecond == 120)
+    #expect(session.framesPerSecond == 90)
     #expect(session.codec == "h264")
 }
 
@@ -91,6 +91,21 @@ func invalidNormalizedCoordinatesAreRejected(x: Double, y: Double) {
     #expect(queue.take() == nil)
 }
 
+@Test func videoQueueCatchesUpOnlyAtAKeyFrameBoundary() {
+    let queue = ReferenceSafeVideoQueue(recoveryBacklogThreshold: 2)
+    let first = EncodedVideoPacket(codecConfiguration: nil, accessUnit: Data([1]), isKeyFrame: false)
+    let second = EncodedVideoPacket(codecConfiguration: nil, accessUnit: Data([2]), isKeyFrame: false)
+    let keyFrame = EncodedVideoPacket(codecConfiguration: Data([9]), accessUnit: Data([3]), isKeyFrame: true)
+
+    queue.offer(first)
+    queue.offer(second)
+    queue.offer(keyFrame)
+
+    #expect(queue.droppedFrameCount == 2)
+    #expect(queue.take()?.accessUnit == keyFrame.accessUnit)
+    #expect(queue.take() == nil)
+}
+
 @Test func invalidVirtualDisplayDimensionsAreRejected() {
     #expect(throws: VirtualDisplayError.invalidConfiguration) {
         try VirtualDisplayConfiguration(width: 0, height: 1200, refreshRate: 60).validate()
@@ -137,9 +152,9 @@ func invalidNormalizedCoordinatesAreRejected(x: Double, y: Double) {
         .first { $0.label == "framesPerSecond" }?.value as? Int
 
     #expect(policy.maxFrameDelayCount == 1)
-    #expect(policy.keyFrameInterval == 120)
+    #expect(policy.keyFrameInterval == 23)
     #expect(policy.averageBitRate == 6_000_000)
-    #expect(framesPerSecond == 120)
+    #expect(framesPerSecond == 90)
 }
 
 @Test func defaultVideoPolicyUsesSmallCaptureBuffer() {

@@ -1,6 +1,6 @@
 # PadScreen
 
-PadScreen turns a Xiaomi Pad or another Android tablet into the primary display of a Mac mini **after macOS login**. The MVP uses a trusted local Wi-Fi/LAN connection, H.264 hardware video, and touch-as-pointer input.
+PadScreen turns a Xiaomi Pad or another Android tablet into the primary display of a Mac mini **after macOS login**. Physical displays are mirrored into the PadScreen desktop instead of remaining separate extended desktops. The MVP uses a trusted local Wi-Fi/LAN connection, VideoToolbox H.264 encoding, low-buffer Android decoding, and touch-as-pointer input.
 
 ## Supported prototype environment
 
@@ -17,9 +17,9 @@ Do not disable FileVault automatically. If FileVault remains enabled, unlock the
 
 ## MVP scope
 
-- 1920x1200 virtual main display at up to 120 Hz
+- 1920x1200 virtual main display with a stable 90 fps stream
 - ScreenCaptureKit capture and VideoToolbox H.264 encoding
-- Android MediaCodec rendering to a Surface
+- Android MediaCodec software decoding and rendering to a Surface
 - One TCP client, heartbeat, automatic reconnect, and touch input
 
 USB transport, audio, internet relay, clipboard, and pre-login display are intentionally deferred.
@@ -91,7 +91,8 @@ The automated macOS package is ad-hoc signed but not Developer ID notarized. The
 - The LAN prototype has no pairing or encryption. Do not expose port `48596` to the internet or an untrusted network.
 - The virtual display uses private CoreGraphics classes and can break on a future macOS update.
 - FileVault preboot, Recovery, Safe Mode, and early boot are not visible.
-- The first tuned stream is fixed at 1920x1200, H.264, up to 120 fps.
+- The first tuned stream is fixed at 1920x1200, H.264, 90 fps.
 - USB, audio, stylus pressure, keyboard forwarding, and automatic host discovery are not included yet.
-- The 120 Hz low-latency path is validated on a Xiaomi Pad 6 Pro; other Android decoders may fall back to different buffering behavior.
+- The 90 fps low-latency path is validated on a Xiaomi Pad 6 Pro; other Android decoders may fall back to different buffering behavior.
+- The validated Xiaomi/Qualcomm hardware AVC decoder retains too many frames, so the Android client prefers `c2.android.avc.decoder`; this uses more tablet CPU and battery.
 - Wi-Fi streaming is validated on the same LAN. A 5 GHz access point is recommended because 2.4 GHz jitter can still reduce smoothness even though encoded H.264 frames are now delivered in reference-safe order.

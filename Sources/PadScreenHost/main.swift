@@ -1,11 +1,13 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import OSLog
 import PadScreenHostCore
 import ServiceManagement
 
 @MainActor
 final class PadScreenAppDelegate: NSObject, NSApplicationDelegate {
+    private let logger = Logger(subsystem: "app.padscreen.host", category: "status")
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let statusMenuItem = NSMenuItem(title: "正在启动…", action: nil, keyEquivalent: "")
     private var virtualDisplay: CoreGraphicsVirtualDisplay?
@@ -36,7 +38,7 @@ final class PadScreenAppDelegate: NSObject, NSApplicationDelegate {
                 setStatus("合成联调模式 · 端口 \(PadScreenServer.defaultPort)")
             } else {
                 let display = try CoreGraphicsVirtualDisplay()
-                try display.makePrimaryKeepingPhysicalDisplays()
+                try display.makePrimaryMirroringPhysicalDisplays()
                 virtualDisplay = display
                 displayID = display.displayID
                 setStatus("虚拟主屏已创建")
@@ -102,6 +104,7 @@ final class PadScreenAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func setStatus(_ status: String) {
+        logger.info("\(status, privacy: .public)")
         statusMenuItem.title = status
     }
 }

@@ -51,13 +51,43 @@ object TouchNormalizer {
     }
 }
 
-class DecoderInputScheduler {
+object H264AccessUnit {
+    fun isKeyFrame(data: ByteArray): Boolean {
+        var offset = 0
+        while (offset + 3 < data.size) {
+            val threeByteStart = data[offset] == 0.toByte() &&
+                data[offset + 1] == 0.toByte() && data[offset + 2] == 1.toByte()
+            val fourByteStart = offset + 4 < data.size && data[offset] == 0.toByte() &&
+                data[offset + 1] == 0.toByte() && data[offset + 2] == 0.toByte() &&
+                data[offset + 3] == 1.toByte()
+            val headerOffset = when {
+                fourByteStart -> offset + 4
+                threeByteStart -> offset + 3
+                else -> {
+                    offset += 1
+                    continue
+                }
+            }
+            if (headerOffset < data.size && (data[headerOffset].toInt() and 0x1f) == 5) return true
+            offset = headerOffset + 1
+        }
+        return false
+    }
+}
+
+class DecoderInputScheduler(private val recoveryBacklogThreshold: Int = 4) {
     private val availableInputBuffers = ArrayDeque<Int>()
     private val pendingAccessUnits = ArrayDeque<ByteArray>()
+    var droppedAccessUnitCount = 0
+        private set
 
     @Synchronized
     fun offer(data: ByteArray) {
-        pendingAccessUnits.addLast(data.copyOf())
+        if (H264AccessUnit.isKeyFrame(data) && pendingAccessUnits.size >= recoveryBacklogThreshold) {
+            droppedAccessUnitCount += pendingAccessUnits.size
+            pendingAccessUnits.clear()
+        }
+        pendingAccessUnits.addLast(data)
     }
 
     @Synchronized
@@ -70,6 +100,9 @@ class DecoderInputScheduler {
         if (pendingAccessUnits.isEmpty() || availableInputBuffers.isEmpty()) return null
         return availableInputBuffers.removeFirst() to pendingAccessUnits.removeFirst()
     }
+
+    @Synchronized
+    fun pendingCount(): Int = pendingAccessUnits.size
 
     @Synchronized
     fun clear() {
@@ -89,13 +122,30 @@ class CodecConfigurationGate {
 }
 
 object AvcDecoderSelector {
+    data class Candidate(val name: String, val hardwareAccelerated: Boolean)
+
+    fun selectForInteractiveStreaming(candidates: List<Candidate>): String? =
+        candidates.firstOrNull {
+            !it.hardwareAccelerated && it.name.equals("c2.android.avc.decoder", ignoreCase = true)
+        }?.name ?: selectCandidate(candidates)
+
+    fun selectCandidate(candidates: List<Candidate>): String? =
+        candidates.firstOrNull { it.hardwareAccelerated && it.name.contains("low_latency", ignoreCase = true) }?.name
+            ?: candidates.firstOrNull { it.hardwareAccelerated }?.name
+            ?: candidates.firstOrNull { it.name.contains("low_latency", ignoreCase = true) }?.name
+            ?: candidates.firstOrNull()?.name
+
     fun select(decoderNames: List<String>): String? =
-        decoderNames.firstOrNull { it.contains("avc.decoder.low_latency", ignoreCase = true) }
-            ?: decoderNames.firstOrNull()
+        selectCandidate(decoderNames.map { Candidate(it, !isSoftwareDecoderName(it)) })
+
+    private fun isSoftwareDecoderName(name: String): Boolean =
+        name.startsWith("c2.android.", ignoreCase = true) ||
+            name.startsWith("omx.google.", ignoreCase = true) ||
+            name.contains("software", ignoreCase = true)
 }
 
 object VideoSurfacePolicy {
-    const val targetFrameRate = 120f
-    const val frameDurationUs = 8_333L
-    const val decoderOperatingRate = 240
+    const val targetFrameRate = 90f
+    const val frameDurationUs = 11_111L
+    const val decoderOperatingRate = 180
 }

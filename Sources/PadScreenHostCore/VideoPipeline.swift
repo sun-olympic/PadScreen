@@ -145,9 +145,9 @@ public struct LowLatencyVideoPolicy: Equatable, Sendable {
     public let enableLowLatencyRateControl: Bool
 
     public static let `default` = LowLatencyVideoPolicy(
-        framesPerSecond: 120,
+        framesPerSecond: 90,
         maxFrameDelayCount: 1,
-        keyFrameInterval: 120,
+        keyFrameInterval: 23,
         averageBitRate: 6_000_000,
         captureQueueDepth: 2,
         enableLowLatencyRateControl: true
@@ -208,10 +208,10 @@ public final class H264Encoder: @unchecked Sendable {
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: policy.framesPerSecond as CFNumber)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameInterval, value: policy.keyFrameInterval as CFNumber)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate, value: policy.averageBitRate as CFNumber)
-        if !policy.enableLowLatencyRateControl {
-            VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: policy.maxFrameDelayCount as CFNumber)
-            VTSessionSetProperty(created, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
-        }
+        let dataRateLimits = [policy.averageBitRate / 8, 1] as CFArray
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_DataRateLimits, value: dataRateLimits)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxFrameDelayCount, value: policy.maxFrameDelayCount as CFNumber)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
         VTCompressionSessionPrepareToEncodeFrames(created)
     }
 
@@ -290,6 +290,10 @@ public final class ScreenCaptureEncoder: NSObject, SCStreamOutput, SCStreamDeleg
     private let policy: LowLatencyVideoPolicy
     private let sampleQueue = DispatchQueue(label: "app.padscreen.capture", qos: .userInteractive)
     private var stream: SCStream?
+    private var idleFrameTimer: DispatchSourceTimer?
+    private var latestImageBuffer: CVImageBuffer?
+    private var lastCaptureUptimeNanoseconds: UInt64 = 0
+    private var lastEncodePresentationTime = CMTime.invalid
 
     public init(displayID: CGDirectDisplayID, width: Int = 1920, height: Int = 1200,
                 policy: LowLatencyVideoPolicy = .default,
@@ -316,16 +320,50 @@ public final class ScreenCaptureEncoder: NSObject, SCStreamOutput, SCStreamDeleg
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         self.stream = stream
         try await stream.startCapture()
+        sampleQueue.async { [weak self] in self?.startIdleFrameTimer() }
     }
 
     public func stop() async {
         try? await stream?.stopCapture()
         stream = nil
+        sampleQueue.async { [weak self] in
+            self?.idleFrameTimer?.cancel()
+            self?.idleFrameTimer = nil
+            self?.latestImageBuffer = nil
+        }
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, CMSampleBufferIsValid(sampleBuffer),
               let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        try? encoder.encode(imageBuffer, presentationTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+        latestImageBuffer = imageBuffer
+        lastCaptureUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+        encodeWithMonotonicTimestamp(imageBuffer)
+    }
+
+    private func startIdleFrameTimer() {
+        guard idleFrameTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: sampleQueue)
+        let interval = DispatchTimeInterval.nanoseconds(1_000_000_000 / 60)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            guard let self, let imageBuffer = self.latestImageBuffer else { return }
+            let idleNanoseconds = DispatchTime.now().uptimeNanoseconds &- self.lastCaptureUptimeNanoseconds
+            guard idleNanoseconds >= 12_000_000 else { return }
+            self.encodeWithMonotonicTimestamp(imageBuffer)
+        }
+        idleFrameTimer = timer
+        timer.resume()
+    }
+
+    private func encodeWithMonotonicTimestamp(_ imageBuffer: CVImageBuffer) {
+        let clockTime = CMClockGetTime(CMClockGetHostTimeClock())
+        let minimumStep = CMTime(value: 1, timescale: 1_000_000)
+        let minimumTime = lastEncodePresentationTime.isValid
+            ? CMTimeAdd(lastEncodePresentationTime, minimumStep)
+            : clockTime
+        let presentationTime = CMTimeCompare(clockTime, minimumTime) >= 0 ? clockTime : minimumTime
+        lastEncodePresentationTime = presentationTime
+        try? encoder.encode(imageBuffer, presentationTime: presentationTime)
     }
 }

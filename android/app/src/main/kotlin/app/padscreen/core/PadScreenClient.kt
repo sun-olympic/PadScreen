@@ -44,6 +44,8 @@ class PadScreenClient(
                     val activeSocket = Socket().apply {
                         tcpNoDelay = true
                         keepAlive = true
+                        receiveBufferSize = 256 * 1024
+                        runCatching { trafficClass = 0x10 }
                         connect(InetSocketAddress(host, port), 3_000)
                     }
                     socket = activeSocket
@@ -90,13 +92,13 @@ class PadScreenClient(
     }
 
     private fun readLoop(activeSocket: Socket) {
-        val input = BufferedInputStream(activeSocket.getInputStream())
+        val input = BufferedInputStream(activeSocket.getInputStream(), 64 * 1024)
         val decoder = FrameDecoder()
         val chunk = ByteArray(64 * 1024)
         while (true) {
             val count = input.read(chunk)
             if (count < 0) return
-            for (frame in decoder.append(chunk.copyOf(count))) {
+            for (frame in decoder.append(chunk, count)) {
                 when (frame.type) {
                     MessageType.SESSION -> listener.onState(ClientConnectionState.STREAMING)
                     MessageType.CODEC_CONFIGURATION -> listener.onCodecConfiguration(frame.payload)

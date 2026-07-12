@@ -51,3 +51,38 @@ public final class OrderedFrameQueue<Element: Sendable>: @unchecked Sendable {
         }
     }
 }
+
+/// Keeps H.264 access units ordered, but catches up at an IDR boundary when the
+/// network has fallen behind. Dropping the queued P-frames together and making
+/// the next queued packet a keyframe avoids both an ever-growing delay and a
+/// broken decoder reference chain.
+public final class ReferenceSafeVideoQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private let recoveryBacklogThreshold: Int
+    private var values: [EncodedVideoPacket] = []
+    private var droppedFrameCountStorage = 0
+
+    public var droppedFrameCount: Int { lock.withLock { droppedFrameCountStorage } }
+
+    public init(recoveryBacklogThreshold: Int = 8) {
+        precondition(recoveryBacklogThreshold > 0)
+        self.recoveryBacklogThreshold = recoveryBacklogThreshold
+    }
+
+    public func offer(_ packet: EncodedVideoPacket) {
+        lock.withLock {
+            if packet.isKeyFrame, values.count >= recoveryBacklogThreshold {
+                droppedFrameCountStorage += values.count
+                values.removeAll(keepingCapacity: true)
+            }
+            values.append(packet)
+        }
+    }
+
+    public func take() -> EncodedVideoPacket? {
+        lock.withLock {
+            guard !values.isEmpty else { return nil }
+            return values.removeFirst()
+        }
+    }
+}
